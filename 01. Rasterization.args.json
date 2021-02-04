@@ -3,6 +3,14 @@
   "Id": "a3e4f3ab-0ffb-f141-5872-7d63c4c7c2c9",
   "Items": [
     {
+      "Id": "473ea30e-bc03-4a82-886b-4fb4868c465f",
+      "Command": "--width=3840"
+    },
+    {
+      "Id": "1f15f083-59d0-4b09-aef4-ca31a6ae7a04",
+      "Command": "--height=2160"
+    },
+    {
       "Id": "9095d557-e71b-4a06-a69e-b1f9f7184731",
       "Command": "720p",
       "Items": [

@@ -3,20 +3,6 @@
   "Id": "097ab6f3-7505-24b8-7e16-a7acea2080b8",
   "Items": [
     {
-      "Id": "174dfb7a-8a37-4930-82d0-aabf4fa1d060",
-      "Command": "720p",
-      "Items": [
-        {
-          "Id": "6d9a7b13-fddb-43b2-bfac-a8eeabfc30d1",
-          "Command": "--height=720"
-        },
-        {
-          "Id": "a7ff0a90-f536-4289-95fe-814d917e8188",
-          "Command": "--width=1280"
-        }
-      ]
-    },
-    {
       "Id": "955470fc-007b-414a-9bb3-8ad1269c8951",
       "Command": "FullHD",
       "Items": [
