@@ -16,7 +16,7 @@ struct ray
 {
 	ray(float3 position, float3 direction) : position(position)
 	{
-		THROW_ERROR("Not implemented yet");
+		this->direction = normalize(direction);
 	}
 	float3 position;
 	float3 direction;
@@ -86,7 +86,7 @@ class aabb
 {
 public:
 	void add_triangle(const triangle<VB> triangle);
-	const std::vector<triangle<VB>>& get_traingles() const;
+	const std::vector<triangle<VB>>& get_triangles() const;
 	bool aabb_test(const ray& ray) const;
 
 protected:
@@ -106,8 +106,8 @@ template<typename VB, typename RT>
 class raytracer
 {
 public:
-	raytracer(){};
-	~raytracer(){};
+	raytracer() {};
+	~raytracer() {};
 
 	void set_render_target(std::shared_ptr<resource<RT>> in_render_target);
 	void clear_render_target(const RT& in_clear_value);
@@ -118,23 +118,23 @@ public:
 	void build_acceleration_structure();
 	std::vector<aabb<VB>> acceleration_structures;
 
-	void ray_generation(float3 position, float3 direction, float3 right, float3 up);
+	void ray_generation(float3 position, float3 direction, float3 right, float3 up, float frame_weight = 1);
 
 	payload trace_ray(const ray& ray, size_t depth, float max_t = 1000.f, float min_t = 0.001f) const;
 	payload intersection_shader(const triangle<VB>& triangle, const ray& ray) const;
 
 	std::function<payload(const ray& ray)> miss_shader = nullptr;
-	std::function<payload(const ray& ray, payload& payload, const triangle<VB>& triangle)> closest_hit_shader =
+	std::function<payload(const ray& ray, payload& payload, const triangle<VB>& triangle, size_t depth)> closest_hit_shader =
 		nullptr;
 	std::function<payload(const ray& ray, payload& payload, const triangle<VB>& triangle)> any_hit_shader =
 		nullptr;
+	float get_random(const int thread_num, float range = 0.1f) const;
 
 
 protected:
 	std::shared_ptr<cg::resource<RT>> render_target;
 	std::vector<std::shared_ptr<cg::resource<VB>>> per_shape_vertex_buffer;
 
-	float get_random(const int thread_num, float range = 0.1f) const;
 
 	size_t width = 1920;
 	size_t height = 1080;
@@ -143,54 +143,173 @@ protected:
 template<typename VB, typename RT>
 inline void raytracer<VB, RT>::set_render_target(std::shared_ptr<resource<RT>> in_render_target)
 {
-	THROW_ERROR("Not implemented yet");
+	render_target = in_render_target;
 }
 
 template<typename VB, typename RT>
 inline void raytracer<VB, RT>::clear_render_target(const RT& in_clear_value)
 {
-	THROW_ERROR("Not implemented yet");
+	for (size_t i = 0; i < render_target->get_number_of_elements(); i++)
+	{
+		render_target->item(i) = in_clear_value;
+	}
 }
 
 template<typename VB, typename RT>
 inline void raytracer<VB, RT>::set_per_shape_vertex_buffer(
 	std::vector<std::shared_ptr<cg::resource<VB>>> in_per_shape_vertex_buffer)
 {
-	THROW_ERROR("Not implemented yet");
+	per_shape_vertex_buffer = in_per_shape_vertex_buffer;
 }
 
 template<typename VB, typename RT>
 inline void raytracer<VB, RT>::build_acceleration_structure()
 {
-	THROW_ERROR("Not implemented yet");
+	for (auto& vertex_buffer: per_shape_vertex_buffer)
+	{
+		size_t vertex_id = 0;
+		aabb<VB> aabb;
+		while (vertex_id < vertex_buffer->get_number_of_elements())
+		{
+			triangle<VB> triangle(
+				vertex_buffer->item(vertex_id++),
+				vertex_buffer->item(vertex_id++),
+				vertex_buffer->item(vertex_id++)
+			);
+			aabb.add_triangle(triangle);
+		}
+		acceleration_structures.push_back(aabb);
+	}
 }
 
 template<typename VB, typename RT>
 inline void raytracer<VB, RT>::set_viewport(size_t in_width, size_t in_height)
 {
-	THROW_ERROR("Not implemented yet");
+	width = in_width;
+	height = in_height;
 }
 
 template<typename VB, typename RT>
 inline void raytracer<VB, RT>::ray_generation(
-	float3 position, float3 direction, float3 right, float3 up)
+	float3 position, float3 direction, float3 right, float3 up, float frame_weight)
 {
-	THROW_ERROR("Not implemented yet");
+		for (int x = 0; x < width; x++)
+		{
+			#pragma omp parallel for
+			for (int y = 0; y < height; y++)
+			{
+				float x_jitter = get_random(omp_get_thread_num() + clock());
+				float y_jitter = get_random(omp_get_thread_num() + clock());
+				// go from [0; width-1] to [-1; 1]
+				float u = (2.f * x) / static_cast<float>(width - 1) - 1.f;
+				// multiply by aspect ratio
+				u *= static_cast<float>(width) / static_cast<float>(height);
+				float v = (2.f * y) / static_cast<float>(height - 1) - 1.f;
+
+				// TAA
+
+				float3 ray_dir =
+					direction + (u) * right - (v) * up;
+
+				ray ray(position, ray_dir);
+				payload payload = trace_ray(ray, 5);
+				cg::color accumed =
+					cg::color::from_float3(render_target->item(x, y).to_float3());
+
+				float fw = frame_weight;
+				float ifw = 1.f - frame_weight;
+				cg::color result_color{ (accumed.r * ifw + payload.color.r * fw),
+								  (accumed.g * ifw + payload.color.g * fw),
+								  (accumed.b * ifw + payload.color.b * fw)};
+
+
+				// SSAA
+				/* float3 ray_dir = direction + u * right - v * up;
+				 float u_delta = .5f / static_cast<float>(width - 1);
+				 u_delta *= static_cast<float>(width) / static_cast<float>(height); 
+				 float v_delta = .5f / static_cast<float>(height - 1);
+				 ray ray0(position, ray_dir);
+				 payload payload0 = trace_ray(ray0, 1);
+
+				 ray ray1(position, ray_dir + u_delta * right);
+				 payload payload1 = trace_ray(ray1, 1);
+
+				 ray ray2(position, ray_dir - v_delta * up);
+				 payload payload2 = trace_ray(ray2, 1);
+
+				 ray ray3(position, ray_dir + u_delta * right - v_delta * up);
+				 payload payload3 = trace_ray(ray3, 1);
+				
+				cg::color result_color{ 
+					(payload0.color.r + payload1.color.r + payload2.color.r + payload3.color.r) / 4.f,
+					(payload0.color.g + payload1.color.g + payload2.color.g + payload3.color.g) / 4.f,
+					(payload0.color.b + payload1.color.b + payload2.color.b + payload3.color.b) / 4.f 
+				};*/
+				render_target->item(x, y) = RT::from_color(result_color);
+			}
+		}
 }
 
 template<typename VB, typename RT>
 inline payload
 	raytracer<VB, RT>::trace_ray(const ray& ray, size_t depth, float max_t, float min_t) const
 {
-	THROW_ERROR("Not implemented yet");
+	if (depth == 0)
+		return miss_shader(ray);
+
+	payload closest_hit_payload = {};
+	closest_hit_payload.t = max_t;
+	const triangle<VB>* closest_triangle = nullptr;
+	for (auto& aabb : acceleration_structures)
+	{
+		if (aabb.aabb_test(ray))
+		{
+			for (auto& triangle : aabb.get_triangles())
+			{
+				payload payload = intersection_shader(triangle, ray);
+				if (payload.t > min_t && payload.t < closest_hit_payload.t)
+				{
+					closest_hit_payload = payload;
+					closest_triangle = &triangle;
+					if (any_hit_shader)
+						return any_hit_shader(ray, payload, triangle);
+				}
+			}
+		}
+	}
+	if (closest_hit_payload.t < max_t)
+	{
+		if (closest_hit_shader)
+			return closest_hit_shader(ray, closest_hit_payload, *closest_triangle, depth - 1);
+	}
+	return miss_shader(ray);
 }
 
 template<typename VB, typename RT>
 inline payload
 	raytracer<VB, RT>::intersection_shader(const triangle<VB>& triangle, const ray& ray) const
 {
-	THROW_ERROR("Not implemented yet");
-	return payload{};
+	payload payload{};
+	payload.t = -1.f;
+	float3 pvec = cross(ray.direction, triangle.ca);
+	float det = dot(triangle.ba, pvec);
+	if (det > -1e-8 && det < 1e-8)
+		return payload;
+
+	float inv_det = 1.f / det;
+	float3 tvec = ray.position - triangle.a;
+	float u = dot(tvec, pvec) * inv_det;
+	if (u < 0.f || u > 1.f)
+		return payload;
+
+	float3 qvec = cross(tvec, triangle.ba);
+	float v = dot(ray.direction, qvec) * inv_det;
+	if (v < 0.f || u + v > 1.f)
+		return payload;
+
+	payload.t = dot(triangle.ca, qvec) * inv_det;
+	payload.bary = float3{ 1.f - u - v, u, v };
+	return payload;
 }
 
 template<typename VB, typename RT>
@@ -205,11 +324,24 @@ inline float raytracer<VB, RT>::get_random(const int thread_num, const float ran
 template<typename VB>
 inline void aabb<VB>::add_triangle(const triangle<VB> triangle)
 {
-	THROW_ERROR("Not implemented yet");
+	if (triangles.empty())
+	{
+		aabb_min = aabb_max = triangle.a;
+	}
+
+	triangles.push_back(triangle);
+
+	aabb_max = max(triangle.a, aabb_max);
+	aabb_max = max(triangle.b, aabb_max);
+	aabb_max = max(triangle.c, aabb_max);
+	
+	aabb_min = min(triangle.a, aabb_min);
+	aabb_min = min(triangle.b, aabb_min);
+	aabb_min = min(triangle.c, aabb_min);
 }
 
 template<typename VB>
-inline const std::vector<triangle<VB>>& aabb<VB>::get_traingles() const
+inline const std::vector<triangle<VB>>& aabb<VB>::get_triangles() const
 {
 	return triangles;
 }
@@ -217,8 +349,12 @@ inline const std::vector<triangle<VB>>& aabb<VB>::get_traingles() const
 template<typename VB>
 inline bool aabb<VB>::aabb_test(const ray& ray) const
 {
-	THROW_ERROR("Not implemented yet");
-	return false;
+	float3 inv_ray_dir = float3(1.f) / ray.direction;
+	float3 t0 = (aabb_max - ray.position) * inv_ray_dir;
+	float3 t1 = (aabb_min - ray.position) * inv_ray_dir;
+	float3 tmin = min(t0, t1);
+	float3 tmax = max(t0, t1);
+	return maxelem(tmin) <= minelem(tmax);
 }
 
 } // namespace cg::renderer

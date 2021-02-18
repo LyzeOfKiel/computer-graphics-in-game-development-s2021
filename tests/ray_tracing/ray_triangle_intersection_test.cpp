@@ -44,7 +44,8 @@ SCENARIO("Raytracer has correct ray-triangle test")
 
 			raytracer.closest_hit_shader = [](const cg::renderer::ray& ray,
 											  cg::renderer::payload& payload,
-											  const cg::renderer::triangle<cg::vertex>& triangle) {
+											  const cg::renderer::triangle<cg::vertex>& triangle,
+											  size_t depth) {
 				payload.color = cg::color::from_float3(float3{ 1.f, 1.f, 1.f });
 				return payload;
 			};
